@@ -5,10 +5,10 @@ target/
 !**/src/test/**/target/
 
 # Ignore SSH key
-src/main/resources/key
+!**/src/main/resources/key
 
 # Ignore known_hosts file
-src/main/resources/known_hosts
+!**/src/main/resources/known_hosts
 
 
 ### STS ###

@@ -12,6 +12,14 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.PathMatcher;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import java.nio.file.Paths;
 import java.io.File;
 
@@ -41,6 +49,7 @@ public class SftpService {
 
     @Value("${sftp.local-directory}")
     private String localDirectory;
+
 
 
 
@@ -119,35 +128,55 @@ public class SftpService {
     }
 
     public String putFile(String relativeLocalFilePath, String remoteDir) {
-        try {
-            // Convert the relative path to an absolute path based on the project's base directory
-            File localFile = Paths.get(localDirectory, relativeLocalFilePath).toFile();
-            if (!localFile.exists()) {
-                throw new RuntimeException("Local file does not exist: " + localFile.getAbsolutePath());
-            }
+      try {
+          File localFile = Paths.get(localDirectory, relativeLocalFilePath).toFile();
+          if (!localFile.exists()) {
+              throw new RuntimeException("Local file does not exist: " + localFile.getAbsolutePath());
+          }
 
-            String payload = "file:" + localFile.getAbsolutePath() + ">" + remoteDir;
-            Message<String> message = MessageBuilder.withPayload(payload).build();
-            Message<?> result = messagingTemplate.sendAndReceive(sftpPutChannel, message);
+          Message<File> message = MessageBuilder.withPayload(localFile)
+                                                .setHeader("remoteDir", remoteDir)
+                                                .build();
 
-            if (result == null) {
-                throw new RuntimeException("Failed to put file to SFTP server");
-            }
+          Message<?> result = messagingTemplate.sendAndReceive(sftpPutChannel, message);
 
-            return "File uploaded to SFTP server: " + remoteDir + "/" + localFile.getName();
-        } catch (Exception e) {
-            // Log the error
-            e.printStackTrace();
-            throw new RuntimeException("Error occurred while putting file to SFTP server", e);
-        }
-    }
+          if (result == null) {
+              throw new RuntimeException("Failed to put file to SFTP server");
+          }
+
+          return "File uploaded to SFTP server: " + remoteDir + "/" + localFile.getName();
+      } catch (Exception e) {
+          throw new RuntimeException("Error occurred while putting file to SFTP server", e);
+      }
+  }
 
     public Object mgetFiles(String remoteFilePathPattern) {
         return messagingTemplate.sendAndReceive(sftpMgetChannel, MessageBuilder.withPayload(remoteFilePathPattern).build());
     }
 
-    public Object mputFiles(String localFilePathPattern, String remoteDir) {
-        String payload = "file:" + localFilePathPattern + ">" + remoteDir;
-        return messagingTemplate.sendAndReceive(sftpMputChannel, MessageBuilder.withPayload(payload).build());
+    public String putFiles(String localFilePathPattern, String remoteDir) {
+        try {
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + localFilePathPattern);
+            List<File> matchingFiles = Files.walk(Paths.get(localDirectory))
+                                            .filter(matcher::matches)
+                                            .map(Path::toFile)
+                                            .collect(Collectors.toList());
+
+            if (matchingFiles.isEmpty()) {
+                throw new RuntimeException("No local files match the provided pattern.");
+            }
+
+            for (File localFile : matchingFiles) {
+                Message<File> message = MessageBuilder.withPayload(localFile)
+                                                      .setHeader("remoteDir", remoteDir)
+                                                      .build();
+
+                messagingTemplate.send(sftpMputChannel, message);
+            }
+
+            return "Files uploaded to SFTP server: " + remoteDir;
+        } catch (Exception e) {
+            throw new RuntimeException("Error occurred while putting files to SFTP server", e);
+        }
     }
 }
