@@ -15,10 +15,10 @@ import org.springframework.integration.sftp.gateway.SftpOutboundGateway;
 import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.expression.spel.standard.SpelExpressionParser;
-
+import org.springframework.integration.handler.LoggingHandler;
 
 import java.io.File;
+import java.io.IOException;
 
 @Configuration
 public class SftpConfig {
@@ -47,21 +47,15 @@ public class SftpConfig {
     @Value("${sftp.local-directory}")
     private String localDirectory;
 
-
-
-
-
     @Bean
-    public SessionFactory<SftpClient.DirEntry> sftpSessionFactory() {
+    public SessionFactory<SftpClient.DirEntry> sftpSessionFactory() throws IOException {
         DefaultSftpSessionFactory factory = new DefaultSftpSessionFactory(true);
         factory.setHost(host);
         factory.setPort(port);
         factory.setUser(user);
-        factory.setPrivateKey(privateKey);
         factory.setPassword(password);
-        //factory.setAllowUnknownKeys(true);
+        factory.setPrivateKey(privateKey);
         factory.setKnownHostsResource(knownHost);
-        System.out.println("Success");
         return factory;
     }
 
@@ -91,13 +85,26 @@ public class SftpConfig {
     }
 
     @Bean
-   public MessageChannel sftpMputChannel() {
-      return new DirectChannel();
-   }
+    public MessageChannel sftpMputChannel() {
+        return new DirectChannel();
+    }
+
+    @Bean
+    public MessageChannel sftpReplyChannel() {
+        return new DirectChannel();
+    }
+
+    @Bean
+    @ServiceActivator(inputChannel = "sftpReplyChannel")
+    public MessageHandler replyHandler() {
+        LoggingHandler loggingHandler = new LoggingHandler("INFO");
+        loggingHandler.setLoggerName("sftpReplyLogger");
+        return loggingHandler;
+    }
 
     @Bean
     @ServiceActivator(inputChannel = "sftpLsChannel")
-    public MessageHandler lsHandler() {
+    public MessageHandler lsHandler() throws IOException {
         SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "ls", "payload");
         gateway.setLocalDirectory(new File(localDirectory));
         return gateway;
@@ -105,7 +112,7 @@ public class SftpConfig {
 
     @Bean
     @ServiceActivator(inputChannel = "sftpGetChannel")
-    public MessageHandler getHandler() {
+    public MessageHandler getHandler() throws IOException {
         SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "get", "payload");
         gateway.setLocalDirectory(new File(localDirectory));
         gateway.setFileExistsMode(FileExistsMode.REPLACE);
@@ -113,32 +120,34 @@ public class SftpConfig {
     }
 
     @Bean
-      @ServiceActivator(inputChannel = "sftpPutChannel")
-      public MessageHandler putHandler() {
-         SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "put", "payload");
-         gateway.setLocalDirectoryExpression(new LiteralExpression(localDirectory));
-         gateway.setRemoteDirectoryExpression(new LiteralExpression(remoteDirectory));
-         gateway.setFileExistsMode(FileExistsMode.REPLACE);
-         gateway.setAutoCreateDirectory(false);
-         return gateway;
-      }
-
-    @Bean
-    @ServiceActivator(inputChannel = "sftpMgetChannel")
-    public MessageHandler mgetHandler() {
-        SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "mget", "payload");
-        gateway.setLocalDirectory(new File(localDirectory));
+    @ServiceActivator(inputChannel = "sftpPutChannel")
+    public MessageHandler putHandler() throws IOException {
+        SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "put", "payload");
+        gateway.setLocalDirectoryExpression(new LiteralExpression(localDirectory));
+        gateway.setRemoteDirectoryExpression(new LiteralExpression(remoteDirectory));
+        gateway.setFileExistsMode(FileExistsMode.REPLACE);
+        gateway.setAutoCreateDirectory(false);
         return gateway;
     }
 
     @Bean
-      @ServiceActivator(inputChannel = "sftpMputChannel")
-      public MessageHandler sftpMultiFileOutboundGateway() {
-         SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "put", "payload");
-         gateway.setLocalDirectoryExpression(new LiteralExpression(localDirectory));
-         gateway.setRemoteDirectoryExpression(new LiteralExpression(remoteDirectory));
-         gateway.setFileExistsMode(FileExistsMode.REPLACE);
-         gateway.setAutoCreateDirectory(false);
-         return gateway;
-      }
+    @ServiceActivator(inputChannel = "sftpMgetChannel")
+    public MessageHandler mgetHandler() throws IOException {
+        SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "mget", "payload");
+        gateway.setLocalDirectory(new File(localDirectory));
+        gateway.setFileExistsMode(FileExistsMode.REPLACE);
+        gateway.setAutoCreateLocalDirectory(false);
+        return gateway;
+    }
+
+    @Bean
+    @ServiceActivator(inputChannel = "sftpMputChannel")
+    public MessageHandler mputHandler() throws IOException {
+        SftpOutboundGateway gateway = new SftpOutboundGateway(sftpSessionFactory(), "mput", "payload");
+        gateway.setLocalDirectoryExpression(new LiteralExpression(localDirectory));
+        gateway.setRemoteDirectoryExpression(new LiteralExpression(remoteDirectory));
+        gateway.setFileExistsMode(FileExistsMode.REPLACE);
+        gateway.setAutoCreateDirectory(false);
+        return gateway;
+    }
 }
